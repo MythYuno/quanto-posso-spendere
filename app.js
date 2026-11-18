@@ -77,7 +77,7 @@
     return {
       id: e.id || uid(), amount: Math.round(+e.amount * 100) / 100,
       note: String(e.note || "").slice(0, 60), date: e.date || todayISO(),
-      createdAt: +e.createdAt || 0
+      oneOff: !!e.oneOff, createdAt: +e.createdAt || 0
     };
   }
 
@@ -93,24 +93,38 @@
     var spent = inPeriod.reduce(function (a, e) { return a + e.amount; }, 0);
     var rest = budget - spent;
 
-    var perDay = [];
-    for (var i = 0; i < total; i++) perDay.push(0);
+    var perDay = [], oncePerDay = [];
+    for (var i = 0; i < total; i++) { perDay.push(0); oncePerDay.push(0); }
     inPeriod.forEach(function (e) {
       var k = diffDays(start, e.date);
-      if (k >= 0 && k < total) perDay[k] += e.amount;
+      if (k >= 0 && k < total) { perDay[k] += e.amount; if (e.oneOff) oncePerDay[k] += e.amount; }
     });
 
+    // le spese "una tantum" tolgono soldi dal budget ma restano fuori dal ritmo giornaliero
+    var onceCum = [], c = 0;
+    for (i = 0; i < total; i++) { c += oncePerDay[i]; onceCum.push(c); }
+    var onceTotal = c;
+    var ordBudget = Math.max(0, budget - onceTotal);
+
     var elapsed = Math.min(total, idx + 1);
-    var burn = elapsed > 0 ? spent / elapsed : 0;
-    var expected = budget * (elapsed / total);
+    var onceSoFar = elapsed > 0 ? onceCum[elapsed - 1] : 0;
+    var burn = elapsed > 0 ? Math.max(0, spent - onceSoFar) / elapsed : 0;
+    var expected = onceSoFar + ordBudget * (elapsed / total);
     var delta = expected - spent;
     var allowance = left > 0 ? rest / left : rest;
     var projEnd = rest - burn * Math.max(0, left - 1);
     var zero = burn > 0 && rest >= 0 ? elapsed + rest / burn : null;
 
+    // linea del ritmo ideale: scende dritta, con un gradino nei giorni delle una tantum
+    var ideal = [];
+    for (i = 0; i <= total; i++) {
+      ideal.push({ i: i, v: budget - (i > 0 ? onceCum[i - 1] : 0) - ordBudget * (i / total) });
+    }
+
     return {
       start: start, end: end, total: total, idx: idx, left: left, elapsed: elapsed,
       budget: budget, spent: spent, rest: rest, perDay: perDay, inPeriod: inPeriod,
+      onceTotal: onceTotal, onceSoFar: onceSoFar, ordBudget: ordBudget, ideal: ideal,
       burn: burn, expected: expected, delta: delta,
       allowance: Math.max(0, allowance), over: rest < 0,
       projEnd: projEnd, zero: zero, isPayday: diffDays(start, today) >= total
@@ -263,7 +277,9 @@
       ? "Restano " + EUR0.format(Math.max(0, m.rest)) + " per " + m.left + (m.left === 1 ? " giorno" : " giorni") + ", fino al " + endTxt + "."
       : "Il periodo è finito: il prossimo stipendio era previsto il " + endTxt + ".";
 
-    el("chartNote").textContent = m.burn > 0 ? "ritmo " + EUR0.format(m.burn) + " al giorno" : "nessuna spesa";
+    el("chartNote").textContent = m.burn > 0
+      ? "ritmo " + EUR0.format(m.burn) + " al giorno"
+      : (m.onceTotal > 0 ? "nessuna spesa di tutti i giorni" : "nessuna spesa");
     el("forecastFoot").hidden = false;
     renderForecastFoot(m);
   }
@@ -281,7 +297,8 @@
           '<div class="stat"><dt>Restano</dt><dd id="sRest">—</dd></div>' +
           '<div class="stat"><dt>Giorni</dt><dd id="sDays">—</dd></div>' +
           '<div class="stat"><dt>Risparmio previsto</dt><dd id="sSave">—</dd></div>' +
-        '</dl>';
+        '</dl>' +
+        '<p class="hint" id="hOnce" hidden></p>';
     }
 
     var kind, txt;
@@ -294,16 +311,23 @@
     pill.innerHTML = PILL[kind] + "<span>" + txt + "</span>";
 
     var usedPct = m.budget > 0 ? Math.min(100, Math.max(0, m.spent / m.budget * 100)) : 0;
-    var timePct = Math.min(100, m.elapsed / m.total * 100);
+    var expPct = m.budget > 0 ? Math.min(100, Math.max(0, m.expected / m.budget * 100)) : 0;
     var fill = el("hFill");
     fill.style.width = usedPct + "%";
     fill.className = "meter-fill" + (m.over ? " crit" : (m.delta < -m.budget * 0.04 ? " warn" : ""));
     var tick = el("hTick");
     tick.hidden = false;
-    tick.style.left = "calc(" + timePct + "% - 1px)";
+    tick.style.left = "calc(" + expPct + "% - 1px)";
     tick.title = "dove dovresti essere";
     el("hL1").textContent = "Spesi " + EUR0.format(m.spent) + " di " + EUR0.format(m.budget);
-    el("hL2").textContent = Math.round(timePct) + "% del periodo";
+    el("hL2").textContent = "al ritmo saresti a " + EUR0.format(m.expected);
+
+    var once = el("hOnce");
+    once.hidden = !(m.onceTotal > 0);
+    if (m.onceTotal > 0) {
+      once.textContent = "Di cui " + EUR0.format(m.onceTotal) + " di spese una tantum, tolte dal budget ma escluse dal ritmo: "
+        + EUR0.format(m.ordBudget) + " da spendere nei " + m.total + " giorni.";
+    }
 
     el("sRest").textContent = EUR0.format(m.rest);
     el("sDays").innerHTML = m.left + '<small>su ' + m.total + "</small>";
@@ -368,7 +392,7 @@
       g.push('<line x1="' + PL + '" y1="' + Y(v).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + Y(v).toFixed(1) + '" stroke="var(--hair)" stroke-width="1"/>');
       g.push('<text x="' + (PL + 2) + '" y="' + (Y(v) - 6).toFixed(1) + '" font-size="10.5" fill="var(--ink3)" ' + FF + '>' + (v === 0 ? "0 €" : EUR0.format(v)) + '</text>');
     });
-    g.push('<line x1="' + X(0).toFixed(1) + '" y1="' + Y(m.budget).toFixed(1) + '" x2="' + X(m.total).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '" stroke="var(--ink3)" stroke-width="2" stroke-dasharray="1 5" stroke-linecap="round" opacity=".75"/>');
+    g.push('<path d="' + path(m.ideal) + '" fill="none" stroke="var(--ink3)" stroke-width="2" stroke-dasharray="1 5" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>');
     g.push('<path d="' + area + '" fill="var(--accent)" opacity=".13"/>');
     g.push('<path d="' + path(act) + '" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>');
     if (proj.length) {
@@ -449,6 +473,7 @@
       var lbl = e.date === t ? "oggi" : (e.date === y ? "ieri" : DAY.format(parseD(e.date)));
       when = '<em class="when">' + esc(lbl) + '</em>';
     }
+    if (e.oneOff) when += '<em class="once">una tantum</em>';
     return '<div class="row"><span class="nm">' + esc(e.note || "Spesa") + when + '</span>' +
       '<span class="amt-v">' + EUR2.format(e.amount) + '</span>' +
       '<button class="del" type="button" data-id="' + esc(e.id) + '" aria-label="Elimina ' + esc(e.note || "spesa") + '">×</button></div>';
@@ -544,8 +569,8 @@
     save(); render();
   }
 
-  function addExpense(amount, note, date) {
-    var e = normExpense({ id: uid(), amount: amount, note: note, date: date || todayISO(), createdAt: Date.now() });
+  function addExpense(amount, note, date, oneOff) {
+    var e = normExpense({ id: uid(), amount: amount, note: note, date: date || todayISO(), oneOff: oneOff, createdAt: Date.now() });
     if (!e) return;
     S.exp.unshift(e);
     save(); render();
@@ -699,11 +724,16 @@
     var a = num(el("exAmt").value);
     if (!isFinite(a) || a <= 0) { el("exAmt").focus(); return; }
     var note = el("exNote").value.trim();
-    addExpense(a, note, el("exDate").value || todayISO());
+    var once = el("exOnce").checked;
+    addExpense(a, note, el("exDate").value || todayISO(), once);
     el("exAmt").value = ""; el("exNote").value = ""; el("exDate").value = todayISO();
+    el("exOnce").checked = false; syncChip();
     el("exAmt").focus();
-    toast("Segnata " + EUR2.format(a) + (note ? " · " + note : ""));
+    toast("Segnata " + EUR2.format(a) + (note ? " · " + note : "") + (once ? " · una tantum" : ""));
   });
+
+  function syncChip() { el("onceChip").classList.toggle("on", el("exOnce").checked); }
+  el("exOnce").addEventListener("change", syncChip);
 
   function onDelClick(e) {
     var b = e.target.closest && e.target.closest(".del");
