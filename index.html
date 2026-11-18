@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quanto posso spendere</title>
+<meta name="description" content="Inserisci lo stipendio, togli il fisso e il risparmio: ti dice quanto puoi spendere oggi fino al prossimo stipendio.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#EDF3F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#071415" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Quanto spendo">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&family=Figtree:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="field" aria-hidden="true"></div>
+
+<main class="wrap">
+  <header class="top">
+    <div class="mark"><i></i><span>Quanto posso spendere</span></div>
+    <div class="top-actions">
+      <button class="ghost" id="btnTheme" type="button" aria-label="Tema: automatico">Auto</button>
+      <button class="ghost" id="btnSettings" type="button">Impostazioni</button>
+    </div>
+  </header>
+
+  <section class="panel lift" id="hero" aria-live="polite"></section>
+
+  <section class="panel" id="addPanel" hidden>
+    <form id="addForm" autocomplete="off">
+      <div class="addrow">
+        <div class="f f-amt">
+          <label for="exAmt">Spesa</label>
+          <input class="big" id="exAmt" inputmode="decimal" placeholder="0,00" aria-describedby="addHint">
+        </div>
+        <div class="f f-note">
+          <label for="exNote">Per cosa</label>
+          <input id="exNote" placeholder="spesa, benzina, cena…" maxlength="60">
+        </div>
+        <div class="f f-date">
+          <label for="exDate">Giorno</label>
+          <input id="exDate" type="date">
+        </div>
+        <button class="solid accent" type="submit">Aggiungi</button>
+      </div>
+      <p class="hint" id="addHint">Invio per salvare. Il numero grande si aggiorna subito.</p>
+    </form>
+  </section>
+
+  <section class="panel" id="chartCard" hidden>
+    <div class="card-head">
+      <h2>Previsione fino al prossimo stipendio</h2>
+      <span class="meta" id="chartNote"></span>
+    </div>
+    <div class="chart-host" id="chartHost"><div class="tip" id="tip"></div></div>
+    <div class="keys" id="keys"></div>
+  </section>
+
+  <section class="panel" id="listCard" hidden>
+    <div class="card-head">
+      <h2>Spese del periodo</h2>
+      <span class="meta" id="listTotal"></span>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <section class="panel" id="savedCard" hidden>
+    <div class="card-head">
+      <h2>Messo da parte</h2>
+      <span class="meta" id="savedTotal"></span>
+    </div>
+    <div class="bars" id="savedBars"></div>
+    <p class="hint">Per ogni periodo chiuso: il risparmio programmato più quello che è rimasto.</p>
+  </section>
+
+  <footer id="foot"></footer>
+</main>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet-inner">
+    <h2 id="sheetTitle">Impostazioni</h2>
+    <div class="f">
+      <label for="stSalary">Stipendio netto</label>
+      <input id="stSalary" inputmode="decimal" placeholder="1.800">
+    </div>
+    <div class="grid2">
+      <div class="f">
+        <label for="stFixed">Spese fisse</label>
+        <input id="stFixed" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="f">
+        <label for="stSave">Da mettere da parte</label>
+        <input id="stSave" inputmode="decimal" placeholder="0">
+      </div>
+    </div>
+    <p class="hint tight">Affitto, bollette, abbonamenti e risparmio vengono tolti prima: quello che resta è davvero tuo.</p>
+    <div class="grid2">
+      <div class="f">
+        <label for="stStart">Inizio periodo</label>
+        <input id="stStart" type="date">
+      </div>
+      <div class="f">
+        <label for="stEnd">Prossimo stipendio</label>
+        <input id="stEnd" type="date">
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="solid accent" type="button" id="stApply">Salva</button>
+      <button class="link" type="button" id="stClose">Chiudi</button>
+    </div>
+
+    <div class="zone">
+      <h3>Periodo</h3>
+      <button class="link" type="button" id="stNewPeriod">Ho ricevuto lo stipendio → chiudi il periodo e aprine uno nuovo</button>
+    </div>
+
+    <div class="zone">
+      <h3>Backup</h3>
+      <p class="hint tight">I dati stanno solo in questo browser. Esporta un file per spostarli su un altro dispositivo.</p>
+      <div class="sheet-actions">
+        <button class="link" type="button" id="stExport">Esporta dati</button>
+        <button class="link" type="button" id="stImport">Importa da file</button>
+        <input type="file" id="fileIn" accept="application/json,.json" hidden>
+      </div>
+      <button class="link danger" type="button" id="stWipe">Cancella le spese di questo periodo</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>

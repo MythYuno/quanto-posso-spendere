@@ -1,0 +1,20 @@
+{
+  "name": "Quanto posso spendere",
+  "short_name": "Quanto spendo",
+  "description": "Inserisci lo stipendio, togli il fisso e il risparmio: ti dice quanto puoi spendere oggi fino al prossimo stipendio.",
+  "lang": "it",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#EDF3F2",
+  "theme_color": "#EDF3F2",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,79 @@
+# Quanto posso spendere
+
+Webapp minimale per i risparmi. Fa tre cose:
+
+1. inserisci lo **stipendio** e quando arriva il prossimo,
+2. ti dice **quanto puoi spendere oggi** per arrivare in fondo,
+3. segni le **spese** che fai.
+
+Niente categorie, niente banca collegata, niente account. Un numero grande e un grafico.
+
+## Come calcola il numero
+
+```
+budget      = stipendio − spese fisse − risparmio da mettere da parte
+restano     = budget − spese del periodo
+puoi oggi   = restano ÷ giorni che mancano (oggi incluso)
+```
+
+Il "ritmo ideale" è il budget che scende in linea retta fino a zero il giorno dello stipendio.
+La pastiglia sotto il numero dice se sei **sotto** o **sopra** quel ritmo, e di quanto.
+
+Il grafico mostra tre cose:
+
+- **andamento reale** — i soldi rimasti giorno per giorno,
+- **previsione** — dove finisci se continui con la media di spesa attuale,
+- **ritmo ideale** — il riferimento.
+
+Se la previsione tocca lo zero prima dello stipendio, il grafico segna il giorno in cui resti a secco.
+
+## Il risparmio
+
+Quello che metti in "da mettere da parte" viene tolto dal budget all'inizio, quindi è protetto:
+non lo puoi spendere per sbaglio. Quando chiudi un periodo (`Impostazioni → Ho ricevuto lo stipendio`)
+l'app registra quanto hai messo via — il risparmio programmato più quello che è avanzato — e lo mostra
+nella sezione **Messo da parte**.
+
+## Dove stanno i dati
+
+Solo nel browser del dispositivo che usi, in `localStorage`. Non c'è server, non c'è account,
+niente esce da lì. Conseguenze da sapere:
+
+- i dati **non si sincronizzano** tra telefono e computer,
+- se cancelli i dati del sito, spariscono,
+- la navigazione privata non li conserva.
+
+Per spostarli c'è `Impostazioni → Backup`: **Esporta** scarica un file `.json`, **Importa** lo rilegge
+su un altro dispositivo.
+
+## Installarla sul telefono
+
+È una PWA e funziona anche offline.
+
+- **iPhone (Safari)**: Condividi → *Aggiungi a Home*.
+- **Android (Chrome)**: menu ⋮ → *Installa app*.
+
+## Sviluppo
+
+Nessuna dipendenza, nessun build step. Sono file statici: apri `index.html` da un server locale.
+
+```bash
+python3 -m http.server 8765
+```
+
+Poi vai su `http://127.0.0.1:8765/`.
+
+| File | Cosa contiene |
+| --- | --- |
+| `index.html` | struttura della pagina |
+| `styles.css` | design tokens, tema chiaro/scuro, vetro |
+| `app.js` | calcolo, grafico SVG, storage |
+| `sw.js` | service worker per l'uso offline |
+| `manifest.webmanifest` | dati per l'installazione |
+
+Il grafico è SVG scritto a mano: il `viewBox` segue la larghezza reale del contenitore, così le
+etichette restano della stessa dimensione sul telefono e sul desktop.
+
+## Licenza
+
+MIT — vedi [LICENSE](LICENSE).
