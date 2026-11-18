@@ -6,7 +6,9 @@
   /* ============ formati e date ============ */
   var EUR0 = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
   var EUR2 = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  var N0 = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
+  var WHOLE = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
+  var FRACTION = new Intl.NumberFormat("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function figure(n) { return Number.isInteger(n) ? WHOLE.format(n) : FRACTION.format(n); }
   var DAY = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short" });
   var DAYLONG = new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long" });
   var MON = new Intl.DateTimeFormat("it-IT", { month: "short", year: "2-digit" });
@@ -24,12 +26,24 @@
     return iso(new Date(d.getFullYear(), d.getMonth() + 1, Math.min(day, last)));
   }
   function num(v) {
-    var s = String(v == null ? "" : v).trim().replace(/[^\d.,\-]/g, "");
-    if (!s) return NaN;
-    if (s.indexOf(",") > -1 && s.indexOf(".") > -1) s = s.replace(/\./g, "").replace(",", ".");
-    else s = s.replace(",", ".");
-    var n = parseFloat(s);
-    return isFinite(n) ? n : NaN;
+    var s = String(v == null ? "" : v).trim().replace(/^€\s*|\s*€$/g, "").trim();
+    if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(s)) s = s.replace(/\./g, "");
+    if (!/^\d+(?:[.,]\d{1,2})?$/.test(s)) return NaN;
+    var value = Number(s.replace(",", "."));
+    return Number.isSafeInteger(Math.round(value * 100)) ? value : NaN;
+  }
+  function moneyField(id, optional) {
+    var input = el(id), raw = input.value.trim();
+    var n = optional && raw === "" ? 0 : num(raw);
+    if (!isFinite(n) || (!optional && n <= 0)) {
+      input.focus();
+      toast("Inserisci un importo valido, ad esempio 1.800,50");
+      return NaN;
+    }
+    return n;
+  }
+  function validDate(s) {
+    return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && iso(parseD(s)) === s;
   }
   function dec(n) { return n ? String(n).replace(".", ",") : ""; }
   function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
@@ -43,28 +57,70 @@
 
   /* ============ archivio locale ============ */
   var KEY = "qps.v1", THEME_KEY = "qps.theme";
-  var S = { set: null, exp: [], per: [], canSave: true };
+  function emptyState() { return { set: null, exp: [], per: [] }; }
+  var S = emptyState();
 
-  function load() {
-    var raw = null;
-    try { raw = localStorage.getItem(KEY); } catch (e) { S.canSave = false; }
-    if (!raw) return;
-    try {
-      var d = JSON.parse(raw);
-      if (d && typeof d === "object") {
-        S.set = d.settings && +d.settings.salary > 0 ? normSettings(d.settings) : null;
-        S.exp = Array.isArray(d.expenses) ? d.expenses.map(normExpense).filter(Boolean) : [];
-        S.per = Array.isArray(d.periods) ? d.periods : [];
-      }
-    } catch (e) { /* dato illeggibile: si riparte da zero senza cancellarlo */ }
+  function readState() {
+    var raw = localStorage.getItem(KEY);
+    if (raw === null) return emptyState();
+    var d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !Array.isArray(d.expenses) || !Array.isArray(d.periods)) {
+      throw new Error("Archivio locale illeggibile");
+    }
+    return {
+      set: d.settings && +d.settings.salary > 0 ? normSettings(d.settings) : null,
+      exp: d.expenses.map(normExpense).filter(Boolean),
+      per: d.periods.map(withActualSavings)
+    };
   }
-  function save() {
-    if (!S.canSave) return;
+  function withActualSavings(p) {
+    if (!p || ![p.salary, p.fixed, p.spent].every(Number.isFinite)) return p;
+    return Object.assign({}, p, { saved: Math.round((p.salary - p.fixed - p.spent) * 100) / 100 });
+  }
+  function snapshot(state) {
+    return { v: 1, settings: state.set, expenses: state.exp, periods: state.per };
+  }
+  function refresh() {
+    try { S = readState(); }
+    catch (err) { toast("Impossibile leggere i dati salvati"); }
+    render();
+  }
+
+  // Anche su HTTP, dove Web Locks può mancare, le schede devono serializzare
+  // lettura, modifica e scrittura. Una transazione readwrite fornisce il lock.
+  var lockDB;
+  function exclusive(action) {
+    if (navigator.locks) return navigator.locks.request(KEY, action);
+    if (!lockDB) lockDB = new Promise(function (resolve, reject) {
+      var open = indexedDB.open("qps-lock", 1);
+      open.onupgradeneeded = function () { open.result.createObjectStore("lock"); };
+      open.onsuccess = function () { resolve(open.result); };
+      open.onerror = function () { reject(open.error); };
+    }).catch(function (err) { lockDB = null; throw err; });
+    return lockDB.then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction("lock", "readwrite"), result;
+        tx.objectStore("lock").get(KEY).onsuccess = function () {
+          try { result = action(); } catch (err) { reject(err); }
+        };
+        tx.oncomplete = function () { resolve(result); };
+        tx.onabort = function () { reject(tx.error); };
+      });
+    });
+  }
+  async function change(edit) {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ v: 1, settings: S.set, expenses: S.exp, periods: S.per }));
-    } catch (e) {
-      S.canSave = false;
-      toast("Questo browser non salva i dati (navigazione privata?)");
+      return await exclusive(function () {
+        var draft = readState();
+        if (edit(draft) === false) return false;
+        localStorage.setItem(KEY, JSON.stringify(snapshot(draft)));
+        S = draft;
+        render();
+        return true;
+      });
+    } catch (err) {
+      toast("Salvataggio non riuscito. Controlla lo spazio disponibile e riprova.");
+      return false;
     }
   }
   function normSettings(s) {
@@ -89,7 +145,7 @@
     var left = Math.max(0, total - idx);
     var budget = Math.max(0, (set.salary || 0) - (set.fixed || 0) - (set.aside || 0));
 
-    var inPeriod = exps.filter(function (e) { return e.date >= start && e.date < end; });
+    var inPeriod = exps.filter(function (e) { return e.date >= start && e.date < end && e.date <= today; });
     var spent = inPeriod.reduce(function (a, e) { return a + e.amount; }, 0);
     var rest = budget - spent;
 
@@ -111,7 +167,11 @@
     var burn = elapsed > 0 ? Math.max(0, spent - onceSoFar) / elapsed : 0;
     var expected = onceSoFar + ordBudget * (elapsed / total);
     var delta = expected - spent;
-    var allowance = left > 0 ? rest / left : rest;
+    var spentToday = perDay[idx] || 0;
+    var openingCents = Math.round((rest + spentToday) * 100);
+    var quotaCents = left > 0 ? Math.floor(openingCents / left) : 0;
+    var allowance = today >= start ? Math.max(0, quotaCents - Math.round(spentToday * 100)) / 100 : 0;
+    var tomorrow = left > 1 ? Math.max(0, Math.floor(Math.round(rest * 100) / (left - 1))) / 100 : 0;
     var projEnd = rest - burn * Math.max(0, left - 1);
     var zero = burn > 0 && rest >= 0 ? elapsed + rest / burn : null;
 
@@ -126,7 +186,7 @@
       budget: budget, spent: spent, rest: rest, perDay: perDay, inPeriod: inPeriod,
       onceTotal: onceTotal, onceSoFar: onceSoFar, ordBudget: ordBudget, ideal: ideal,
       burn: burn, expected: expected, delta: delta,
-      allowance: Math.max(0, allowance), over: rest < 0,
+      allowance: allowance, tomorrow: tomorrow, over: rest < 0,
       projEnd: projEnd, zero: zero, isPayday: diffDays(start, today) >= total
     };
   }
@@ -187,12 +247,13 @@
   var lastFigure = null, heroMode = "", footBuilt = false;
 
   function tween(node, from, to) {
-    if (RM || from == null || !isFinite(from)) { node.textContent = N0.format(Math.round(to)); return; }
+    if (RM || from == null || !isFinite(from)) { node.textContent = figure(to); return; }
+    if (node._frame) cancelAnimationFrame(node._frame);
     var t0 = performance.now(), d = 460;
     (function step(t) {
       var k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3);
-      node.textContent = N0.format(Math.round(from + (to - from) * e));
-      if (k < 1) requestAnimationFrame(step);
+      node.textContent = figure(k === 1 ? to : Math.floor(from + (to - from) * e));
+      if (k < 1) node._frame = requestAnimationFrame(step);
     })(t0);
   }
 
@@ -225,16 +286,7 @@
       el("obEnd").value = addMonth(todayISO());
       el("obForm").addEventListener("submit", function (ev) {
         ev.preventDefault();
-        var sal = num(el("obSalary").value);
-        if (!isFinite(sal) || sal <= 0) { el("obSalary").focus(); return; }
-        var end = el("obEnd").value || "";
-        if (!end || diffDays(todayISO(), end) < 1) end = addMonth(todayISO());
-        setSettings({
-          salary: sal,
-          fixed: Math.max(0, num(el("obFixed").value) || 0),
-          aside: Math.max(0, num(el("obSave").value) || 0),
-          start: todayISO(), end: end
-        });
+        applySettings("ob");
       });
     }
     el("chartNote").innerHTML = '<span class="tag">Esempio</span> così si leggerà';
@@ -251,7 +303,9 @@
 
   function heroLive(m) {
     setMode("live");
-    el("addForm").hidden = false;
+    el("addForm").hidden = m.isPayday || todayISO() < m.start;
+    el("exDate").min = m.start;
+    el("exDate").max = todayISO();
     el("today").hidden = false;
     if (heroMode !== "live") {
       heroMode = "live";
@@ -267,8 +321,9 @@
     }
 
     el("paydayBox").hidden = !m.isPayday;
-    var fig = Math.floor(m.allowance);
-    el("hEyebrow").textContent = m.over ? "Sei oltre il budget" : "Puoi spendere oggi";
+    var fig = m.allowance;
+    el("hEyebrow").textContent = "Ti restano oggi";
+    el("hFig").parentElement.classList.toggle("compact", figure(fig).length > 6);
     tween(el("hFig"), lastFigure, fig);
     lastFigure = fig;
 
@@ -277,6 +332,9 @@
       ? "Restano " + EUR0.format(Math.max(0, m.rest)) + " per " + m.left + (m.left === 1 ? " giorno" : " giorni") + ", fino al " + endTxt + "."
       : "Il periodo è finito: il prossimo stipendio era previsto il " + endTxt + ".";
 
+    if (m.left > 1 && todayISO() >= m.start) {
+      el("hSub").textContent += " Da domani " + EUR2.format(m.tomorrow) + " al giorno se oggi ti fermi qui.";
+    }
     el("chartNote").textContent = m.burn > 0
       ? "ritmo " + EUR0.format(m.burn) + " al giorno"
       : (m.onceTotal > 0 ? "nessuna spesa di tutti i giorni" : "nessuna spesa");
@@ -331,11 +389,8 @@
 
     el("sRest").textContent = EUR0.format(m.rest);
     el("sDays").innerHTML = m.left + '<small>su ' + m.total + "</small>";
-    var saved = (S.set.aside || 0) + Math.max(0, m.projEnd);
-    el("sSave").innerHTML = EUR0.format(saved) + '<small>' +
-      (m.projEnd >= 1
-        ? EUR0.format(S.set.aside || 0) + " + " + EUR0.format(m.projEnd) + " di avanzo"
-        : "programmato " + EUR0.format(S.set.aside || 0)) + "</small>";
+    var saved = S.set.salary - S.set.fixed - m.budget + m.projEnd;
+    el("sSave").innerHTML = EUR0.format(saved) + "<small>obiettivo " + EUR0.format(S.set.aside) + "</small>";
   }
 
   /* ============ grafico ============ */
@@ -530,14 +585,14 @@
       box.innerHTML = '<p class="empty">Qui finisce quello che metti da parte. Il primo importo compare quando chiudi un periodo, cioè quando arriva lo stipendio nuovo.</p>';
       return;
     }
-    var max = Math.max.apply(null, list.map(function (p) { return Math.max(0, +p.saved); }).concat([1]));
-    var tot = list.reduce(function (a, p) { return a + Math.max(0, +p.saved); }, 0);
+    var max = Math.max.apply(null, list.map(function (p) { return p.saved; }).concat([1]));
+    var tot = list.reduce(function (a, p) { return a + p.saved; }, 0);
     el("savedTotal").textContent = "totale " + EUR0.format(tot);
     box.innerHTML = '<div class="bars">' + list.slice(0, 24).map(function (p) {
-      var w = Math.max(2, Math.max(0, +p.saved) / max * 100);
+      var w = Math.max(0, p.saved / max * 100);
       return '<div class="bar"><span class="lb">' + esc(MON.format(parseD(p.end || p.start))) + '</span>' +
         '<span class="tr"><span class="fl" style="width:' + w.toFixed(1) + '%"></span></span>' +
-        '<span class="vl">' + EUR0.format(Math.max(0, +p.saved)) + '</span></div>';
+        '<span class="vl">' + EUR0.format(p.saved) + '</span></div>';
     }).join("") + '</div>';
   }
 
@@ -563,49 +618,72 @@
     t._k = setTimeout(function () { t.hidden = true; }, 5200);
   }
 
-  function setSettings(patch) {
-    S.set = normSettings(Object.assign({}, S.set || {}, patch));
-    heroMode = "";
-    save(); render();
-  }
-
-  function addExpense(amount, note, date, oneOff) {
-    var e = normExpense({ id: uid(), amount: amount, note: note, date: date || todayISO(), oneOff: oneOff, createdAt: Date.now() });
-    if (!e) return;
-    S.exp.unshift(e);
-    save(); render();
-  }
-
-  function delExpense(id) {
-    var gone = null;
-    S.exp = S.exp.filter(function (x) { if (x.id === id) { gone = x; return false; } return true; });
-    save(); render();
-    if (!gone) return;
-    toast("Eliminata " + EUR2.format(gone.amount), "Ripristina", function () {
-      S.exp.unshift(gone); save(); render();
+  var openedSettings;
+  async function applySettings(prefix) {
+    var salary = moneyField(prefix + "Salary", false);
+    if (!isFinite(salary)) return;
+    var fixed = moneyField(prefix + "Fixed", true);
+    if (!isFinite(fixed)) return;
+    var aside = moneyField(prefix + "Save", true);
+    if (!isFinite(aside)) return;
+    var start = prefix === "ob" ? todayISO() : el("stStart").value;
+    var end = el(prefix + "End").value;
+    if (!validDate(start) || !validDate(end) || start > todayISO() || end <= start || (prefix === "ob" && end <= todayISO())) {
+      toast("Controlla le date di inizio e del prossimo stipendio"); return;
+    }
+    var previous = prefix === "ob" ? "null" : openedSettings;
+    var ok = await change(function (draft) {
+      if (JSON.stringify(draft.set) !== previous) {
+        toast("Il periodo è cambiato. Riapri le impostazioni."); return false;
+      }
+      // Per i vecchi riepiloghi end era la data prevista, anche chiudendo in anticipo.
+      var last = draft.per[0];
+      if (last && start < (last.closedAt ? iso(new Date(last.closedAt)) : last.end)) {
+        toast("Questa data si sovrappone a un periodo chiuso"); return false;
+      }
+      draft.set = { salary: salary, fixed: fixed, aside: aside, start: start, end: end };
     });
+    if (ok && prefix === "st") { closeSheet(); toast("Impostazioni salvate"); }
   }
 
-  function newPeriod() {
-    if (!S.set) return;
-    var m = model(S.set, S.exp, todayISO());
-    var saved = (S.set.aside || 0) + Math.max(0, m.rest);
-    S.per.unshift({
-      start: m.start, end: m.end, salary: +S.set.salary || 0, fixed: +S.set.fixed || 0,
-      aside: +S.set.aside || 0, budget: m.budget,
-      spent: Math.round(m.spent * 100) / 100, saved: Math.round(saved * 100) / 100,
-      closedAt: Date.now()
+  async function removeExpenses(ids) {
+    var removed;
+    var ok = await change(function (draft) {
+      removed = draft.exp.filter(function (e) { return ids.has(e.id); });
+      if (!removed.length) { toast("Nessuna spesa da eliminare"); return false; }
+      draft.exp = draft.exp.filter(function (e) { return !ids.has(e.id); });
     });
-    if (S.per.length > 60) S.per.length = 60;
-    var t = todayISO();
-    setSettings({ start: t, end: addMonth(t) });
+    if (!ok) return;
     closeSheet();
-    toast("Nuovo periodo aperto · messi da parte " + EUR0.format(saved));
+    toast(removed.length === 1 ? "Eliminata " + EUR2.format(removed[0].amount) : removed.length + " spese cancellate", "Ripristina", function () {
+      change(function (draft) {
+        var existing = new Set(draft.exp.map(function (e) { return e.id; }));
+        draft.exp = removed.filter(function (e) { return !existing.has(e.id); }).concat(draft.exp);
+      });
+    });
+  }
+
+  async function newPeriod() {
+    var t = todayISO(), saved;
+    var ok = await change(function (draft) {
+      var s = draft.set;
+      if (!s || s.start >= t) { toast("Il nuovo periodo è già aperto per oggi"); return false; }
+      var closed = Object.assign({}, s, { end: t });
+      var m = model(closed, draft.exp, t);
+      var period = withActualSavings(Object.assign(closed, {
+        budget: m.budget, spent: Math.round(m.spent * 100) / 100, closedAt: Date.now()
+      }));
+      saved = period.saved;
+      draft.per.unshift(period);
+      draft.per = draft.per.slice(0, 60);
+      draft.set = Object.assign({}, s, { start: t, end: addMonth(t) });
+    });
+    if (ok) { closeSheet(); toast("Nuovo periodo aperto · saldo del periodo " + EUR2.format(saved)); }
   }
 
   /* ============ backup ============ */
   function exportData() {
-    var blob = new Blob([JSON.stringify({ v: 1, settings: S.set, expenses: S.exp, periods: S.per }, null, 2)],
+    var blob = new Blob([JSON.stringify(snapshot(S), null, 2)],
       { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
@@ -618,27 +696,42 @@
     toast("File scaricato");
   }
 
-  function importData(file) {
-    var r = new FileReader();
-    r.onload = function () {
-      try {
-        var d = JSON.parse(String(r.result));
-        if (!d || typeof d !== "object") throw 0;
-        S.set = d.settings && +d.settings.salary > 0 ? normSettings(d.settings) : null;
-        S.exp = Array.isArray(d.expenses) ? d.expenses.map(normExpense).filter(Boolean) : [];
-        S.per = Array.isArray(d.periods) ? d.periods : [];
-        heroMode = ""; save(); render(); closeSheet();
-        toast("Dati importati: " + S.exp.length + " spese");
-      } catch (e) {
-        toast("Il file non è leggibile");
-      }
-    };
-    r.onerror = function () { toast("Non riesco a leggere il file"); };
-    r.readAsText(file);
+  function validBackup(d) {
+    function money(n) { return Number.isFinite(n) && n >= 0 && Number.isSafeInteger(Math.round(n * 100)); }
+    function settings(s) {
+      return s && money(s.salary) && money(s.fixed) && money(s.aside) &&
+        validDate(s.start) && validDate(s.end) && s.start < s.end;
+    }
+    if (!d || d.v !== 1 || !(d.settings === null || settings(d.settings)) ||
+        !Array.isArray(d.expenses) || !Array.isArray(d.periods)) return false;
+    var ids = new Set();
+    return d.expenses.every(function (e) {
+      if (!e || typeof e.id !== "string" || !e.id || ids.has(e.id) || !validDate(e.date) ||
+          !money(e.amount) || typeof e.note !== "string" || (e.oneOff !== undefined && typeof e.oneOff !== "boolean") ||
+          !Number.isFinite(e.createdAt)) return false;
+      ids.add(e.id); return true;
+    }) && d.periods.every(function (p) {
+      return settings(p) && money(p.spent) && money(p.budget) && Number.isFinite(p.saved) &&
+        Number.isFinite(p.closedAt) && validDate(iso(new Date(p.closedAt)));
+    });
+  }
+  async function importData(file) {
+    var d;
+    try { d = JSON.parse(await file.text()); }
+    catch (err) { toast("Il file non è leggibile"); return; }
+    if (!validBackup(d)) { toast("Backup non valido. I tuoi dati sono al sicuro."); return; }
+    if (!window.confirm("Sostituire i dati attuali con " + d.expenses.length + " spese e " + d.periods.length + " periodi chiusi dal backup?")) return;
+    var ok = await change(function (draft) {
+      draft.set = d.settings && d.settings.salary > 0 ? normSettings(d.settings) : null;
+      draft.exp = d.expenses.map(normExpense);
+      draft.per = d.periods.map(withActualSavings);
+    });
+    if (ok) { closeSheet(); toast("Dati importati: " + d.expenses.length + " spese"); }
   }
 
   /* ============ impostazioni ============ */
   function openSheet() {
+    openedSettings = JSON.stringify(S.set);
     var s = S.set || {};
     el("stSalary").value = dec(s.salary);
     el("stFixed").value = dec(s.fixed);
@@ -688,16 +781,7 @@
   });
 
   el("stApply").addEventListener("click", function () {
-    var sal = num(el("stSalary").value);
-    setSettings({
-      salary: isFinite(sal) ? sal : (S.set ? S.set.salary : 0),
-      fixed: Math.max(0, num(el("stFixed").value) || 0),
-      aside: Math.max(0, num(el("stSave").value) || 0),
-      start: el("stStart").value || todayISO(),
-      end: el("stEnd").value || ""
-    });
-    closeSheet();
-    toast("Impostazioni salvate");
+    applySettings("st");
   });
   el("stNewPeriod").addEventListener("click", newPeriod);
   el("stExport").addEventListener("click", exportData);
@@ -710,22 +794,26 @@
     if (!S.set) return;
     var m = model(S.set, S.exp, todayISO());
     if (!m.inPeriod.length) { toast("Non c'è niente da cancellare"); return; }
-    var backup = m.inPeriod.slice(), ids = {};
-    backup.forEach(function (e) { ids[e.id] = 1; });
-    S.exp = S.exp.filter(function (e) { return !ids[e.id]; });
-    save(); render(); closeSheet();
-    toast(backup.length + " spese cancellate", "Ripristina", function () {
-      S.exp = backup.concat(S.exp); save(); render();
-    });
+    removeExpenses(new Set(m.inPeriod.map(function (e) { return e.id; })));
   });
 
-  el("addForm").addEventListener("submit", function (ev) {
+  var adding = false;
+  el("addForm").addEventListener("submit", async function (ev) {
     ev.preventDefault();
-    var a = num(el("exAmt").value);
-    if (!isFinite(a) || a <= 0) { el("exAmt").focus(); return; }
-    var note = el("exNote").value.trim();
-    var once = el("exOnce").checked;
-    addExpense(a, note, el("exDate").value || todayISO(), once);
+    if (adding) return;
+    var a = moneyField("exAmt", false);
+    if (!isFinite(a)) return;
+    var note = el("exNote").value.trim(), once = el("exOnce").checked;
+    var date = el("exDate").value || todayISO();
+    adding = true;
+    var ok = await change(function (draft) {
+      if (!draft.set || !validDate(date) || date < draft.set.start || date >= draft.set.end || date > todayISO()) {
+        toast("Scegli un giorno del periodo, fino a oggi"); return false;
+      }
+      draft.exp.unshift(normExpense({ id: uid(), amount: a, note: note, date: date, oneOff: once, createdAt: Date.now() }));
+    });
+    adding = false;
+    if (!ok) return;
     el("exAmt").value = ""; el("exNote").value = ""; el("exDate").value = todayISO();
     el("exOnce").checked = false; syncChip();
     el("exAmt").focus();
@@ -737,22 +825,24 @@
 
   function onDelClick(e) {
     var b = e.target.closest && e.target.closest(".del");
-    if (b) delExpense(b.getAttribute("data-id"));
+    if (b) removeExpenses(new Set([b.getAttribute("data-id")]));
   }
   el("list").addEventListener("click", onDelClick);
   el("today").addEventListener("click", onDelClick);
 
   /* ============ avvio ============ */
   initTheme();
-  load();
   el("exDate").value = todayISO();
-  render();
+  refresh();
+  window.addEventListener("storage", function (e) {
+    if (e.key === KEY || e.key === null) refresh();
+  });
 
   // il giorno cambia mentre l'app è aperta: ricalcola al rientro
   var bootDay = todayISO();
   window.addEventListener("focus", function () {
     if (todayISO() !== bootDay) { bootDay = todayISO(); el("exDate").value = bootDay; }
-    render();
+    refresh();
   });
 
   // il grafico usa px reali: va ridisegnato quando cambia la misura del contenitore
