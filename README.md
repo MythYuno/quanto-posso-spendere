@@ -26,10 +26,16 @@ solo se serve. Il tema (auto, chiaro, scuro) si sceglie dalle impostazioni, l'in
 ## Come calcola il numero
 
 ```
-budget      = stipendio − spese fisse − risparmio da mettere da parte
-restano     = budget − spese del periodo
-puoi oggi   = restano ÷ giorni che mancano (oggi incluso)
+budget = stipendio − spese fisse − obiettivo di risparmio
+quota di oggi = (budget − spese fino a ieri) ÷ giorni rimasti, oggi incluso
+ti restano oggi = quota di oggi − spese di oggi
 ```
+
+La quota è arrotondata per difetto ai centesimi. Quando la esaurisci, il numero si ferma a zero.
+Con 400 € per 10 giorni parti da 40 €. Se oggi spendi 40 €, ti restano 0 € per oggi e 40 € al
+giorno da domani. La quota indicata per domani presuppone che oggi tu smetta di spendere.
+Puoi registrare spese da inizio periodo fino a oggi. Eventuali spese future dei vecchi backup
+entrano nei calcoli alla loro data.
 
 Il "ritmo ideale" è il budget che scende in linea retta fino a zero il giorno dello stipendio.
 La pastiglia sotto il numero dice se sei **sotto** o **sopra** quel ritmo, e di quanto.
@@ -44,10 +50,10 @@ Se la previsione tocca lo zero prima dello stipendio, il grafico segna il giorno
 
 ## Il risparmio
 
-Quello che metti in "da mettere da parte" viene tolto dal budget all'inizio, quindi è protetto:
-non lo puoi spendere per sbaglio. Quando chiudi un periodo (`Impostazioni → Ho ricevuto lo stipendio`)
-l'app registra quanto hai messo via — il risparmio programmato più quello che è avanzato — e lo mostra
-nella sezione **Messo da parte**.
+L’obiettivo di risparmio riduce la quota spendibile. Alla chiusura il saldo effettivo è
+**stipendio meno spese fisse meno spese registrate**. Anche un disavanzo compare nello storico
+e riduce il totale. La data di chiusura è il primo giorno del nuovo periodo. Tutte le spese di
+quel giorno appartengono al nuovo periodo, anche se le hai segnate prima della chiusura.
 
 ## Dove stanno i dati
 
@@ -59,7 +65,7 @@ niente esce da lì. Conseguenze da sapere:
 - la navigazione privata non li conserva.
 
 Per spostarli c'è `Impostazioni → Backup`: **Esporta** scarica un file `.json`, **Importa** lo rilegge
-su un altro dispositivo.
+su un altro dispositivo. Il file viene verificato prima di chiederti conferma della sostituzione.
 
 ## Installarla sul telefono
 
@@ -88,6 +94,18 @@ Poi vai su `http://127.0.0.1:8765/`.
 
 Il grafico è SVG scritto a mano: il `viewBox` segue la larghezza reale del contenitore, così le
 etichette restano della stessa dimensione sul telefono e sul desktop.
+
+## Test
+
+Per le prove di regressione in Chromium:
+
+```bash
+python -m pip install playwright
+python -m playwright install chromium
+python tests/test_browser.py -v
+```
+
+Puoi indicare un Chromium già installato con la variabile `CHROMIUM_PATH`.
 
 ## Licenza
 
