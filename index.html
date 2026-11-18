@@ -23,70 +23,83 @@
 
 <div class="field" aria-hidden="true"></div>
 
-<main class="wrap">
+<div class="app" id="app">
+
   <header class="top">
-    <div class="mark"><i></i><span>Quanto posso spendere</span></div>
-    <div class="top-actions">
-      <button class="ghost" id="btnTheme" type="button" aria-label="Tema: automatico">Auto</button>
-      <button class="ghost" id="btnSettings" type="button">Impostazioni</button>
-    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Schede"></nav>
+    <button class="gear" id="btnSettings" type="button" aria-label="Impostazioni">
+      <svg width="19" height="19" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="10" cy="10" r="2.7" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M10 2.4l1.2 1.9 2.2-.5.5 2.2 1.9 1.2-1.1 2 1.1 2-1.9 1.2-.5 2.2-2.2-.5L10 17.6l-1.2-1.9-2.2.5-.5-2.2-1.9-1.2 1.1-2-1.1-2 1.9-1.2.5-2.2 2.2.5L10 2.4z"
+              stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      </svg>
+    </button>
   </header>
 
-  <section class="panel lift" id="hero" aria-live="polite"></section>
+  <div class="pager" id="pager">
 
-  <section class="panel" id="addPanel" hidden>
-    <form id="addForm" autocomplete="off">
-      <div class="addrow">
-        <div class="f f-amt">
-          <label for="exAmt">Spesa</label>
-          <input class="big" id="exAmt" inputmode="decimal" placeholder="0,00" aria-describedby="addHint">
-        </div>
-        <div class="f f-note">
-          <label for="exNote">Per cosa</label>
-          <input id="exNote" placeholder="spesa, benzina, cena…" maxlength="60">
-        </div>
-        <div class="f f-date">
-          <label for="exDate">Giorno</label>
-          <input id="exDate" type="date">
-        </div>
-        <button class="solid accent" type="submit">Aggiungi</button>
+    <section class="screen" id="sc0" role="tabpanel" aria-label="Oggi">
+      <div class="panel lift home">
+        <div id="hero" aria-live="polite"></div>
+        <div class="today" id="today"></div>
+        <form class="quick" id="addForm" autocomplete="off" hidden>
+          <div class="quick-main">
+            <span class="quick-cur" aria-hidden="true">€</span>
+            <input id="exAmt" class="amt" inputmode="decimal" placeholder="0,00" aria-label="Importo della spesa appena fatta">
+            <button class="add" type="submit" aria-label="Aggiungi spesa">
+              <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M10 4.4v11.2M4.4 10h11.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="quick-row2">
+            <input id="exNote" placeholder="che cos'è?" maxlength="60" aria-label="Per cosa">
+            <input id="exDate" type="date" aria-label="Giorno della spesa">
+          </div>
+        </form>
       </div>
-      <p class="hint" id="addHint">Invio per salvare. Il numero grande si aggiorna subito.</p>
-    </form>
-  </section>
+    </section>
 
-  <section class="panel" id="chartCard" hidden>
-    <div class="card-head">
-      <h2>Previsione fino al prossimo stipendio</h2>
-      <span class="meta" id="chartNote"></span>
-    </div>
-    <div class="chart-host" id="chartHost"><div class="tip" id="tip"></div></div>
-    <div class="keys" id="keys"></div>
-  </section>
+    <section class="screen" id="sc1" role="tabpanel" aria-label="Previsione">
+      <div class="panel tall">
+        <div class="card-head">
+          <h2>Previsione</h2>
+          <span class="meta" id="chartNote"></span>
+        </div>
+        <div class="chart-host" id="chartHost"><div class="tip" id="tip"></div></div>
+        <div class="keys" id="keys"></div>
+        <div id="forecastFoot"></div>
+      </div>
+    </section>
 
-  <section class="panel" id="listCard" hidden>
-    <div class="card-head">
-      <h2>Spese del periodo</h2>
-      <span class="meta" id="listTotal"></span>
-    </div>
-    <div id="list"></div>
-  </section>
+    <section class="screen" id="sc2" role="tabpanel" aria-label="Spese del periodo">
+      <div class="panel tall">
+        <div class="card-head">
+          <h2>Spese del periodo</h2>
+          <span class="meta" id="listTotal"></span>
+        </div>
+        <div class="scroller" id="list"></div>
+      </div>
+    </section>
 
-  <section class="panel" id="savedCard" hidden>
-    <div class="card-head">
-      <h2>Messo da parte</h2>
-      <span class="meta" id="savedTotal"></span>
-    </div>
-    <div class="bars" id="savedBars"></div>
-    <p class="hint">Per ogni periodo chiuso: il risparmio programmato più quello che è rimasto.</p>
-  </section>
+    <section class="screen" id="sc3" role="tabpanel" aria-label="Messo da parte">
+      <div class="panel tall">
+        <div class="card-head">
+          <h2>Messo da parte</h2>
+          <span class="meta" id="savedTotal"></span>
+        </div>
+        <div class="scroller" id="savedBars"></div>
+      </div>
+    </section>
 
-  <footer id="foot"></footer>
-</main>
+  </div>
+
+</div>
 
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <div class="sheet-inner">
     <h2 id="sheetTitle">Impostazioni</h2>
+
     <div class="f">
       <label for="stSalary">Stipendio netto</label>
       <input id="stSalary" inputmode="decimal" placeholder="1.800">
@@ -115,6 +128,15 @@
     <div class="sheet-actions">
       <button class="solid accent" type="button" id="stApply">Salva</button>
       <button class="link" type="button" id="stClose">Chiudi</button>
+    </div>
+
+    <div class="zone">
+      <h3 id="themeLabel">Tema</h3>
+      <div class="seg" id="segTheme" role="group" aria-labelledby="themeLabel">
+        <button type="button" data-t="auto">Auto</button>
+        <button type="button" data-t="light">Chiaro</button>
+        <button type="button" data-t="dark">Scuro</button>
+      </div>
     </div>
 
     <div class="zone">

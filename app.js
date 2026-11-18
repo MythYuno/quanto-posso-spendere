@@ -70,10 +70,7 @@
   function normSettings(s) {
     var start = s.start || todayISO();
     var end = s.end && diffDays(start, s.end) >= 1 ? s.end : addMonth(start);
-    return {
-      salary: +s.salary || 0, fixed: +s.fixed || 0, aside: +s.aside || 0,
-      start: start, end: end
-    };
+    return { salary: +s.salary || 0, fixed: +s.fixed || 0, aside: +s.aside || 0, start: start, end: end };
   }
   function normExpense(e) {
     if (!e || !isFinite(+e.amount)) return null;
@@ -87,9 +84,9 @@
   /* ============ calcolo ============ */
   function model(set, exps, today) {
     var start = set.start, end = set.end;
-    var total = Math.max(1, diffDays(start, end));              // giorni del periodo
+    var total = Math.max(1, diffDays(start, end));
     var idx = Math.min(total, Math.max(0, diffDays(start, today)));
-    var left = Math.max(0, total - idx);                        // giorni rimasti, oggi incluso
+    var left = Math.max(0, total - idx);
     var budget = Math.max(0, (set.salary || 0) - (set.fixed || 0) - (set.aside || 0));
 
     var inPeriod = exps.filter(function (e) { return e.date >= start && e.date < end; });
@@ -103,10 +100,10 @@
       if (k >= 0 && k < total) perDay[k] += e.amount;
     });
 
-    var elapsed = Math.min(total, idx + 1);                     // giorni iniziati, oggi incluso
+    var elapsed = Math.min(total, idx + 1);
     var burn = elapsed > 0 ? spent / elapsed : 0;
     var expected = budget * (elapsed / total);
-    var delta = expected - spent;                               // >0 = sotto il ritmo
+    var delta = expected - spent;
     var allowance = left > 0 ? rest / left : rest;
     var projEnd = rest - burn * Math.max(0, left - 1);
     var zero = burn > 0 && rest >= 0 ? elapsed + rest / burn : null;
@@ -120,8 +117,60 @@
     };
   }
 
-  /* ============ eroe ============ */
-  var lastFigure = null, heroMode = "";
+  /* ============ schede orizzontali ============ */
+  var pager = el("pager"), tabsEl = el("tabs");
+  var TABS = {
+    onboard: [[0, "Si parte"], [1, "Esempio"]],
+    live: [[0, "Oggi"], [1, "Previsione"], [2, "Spese"], [3, "Risparmi"]]
+  };
+  var curMode = "", active = 0, sTick = 0;
+
+  function setMode(mode) {
+    if (curMode === mode) return;
+    curMode = mode;
+    var defs = TABS[mode], on = {};
+    defs.forEach(function (d) { on[d[0]] = 1; });
+    for (var i = 0; i < 4; i++) el("sc" + i).hidden = !on[i];
+    tabsEl.innerHTML = defs.map(function (d, k) {
+      return '<button class="tab" type="button" role="tab" id="tab' + k + '" data-k="' + k +
+        '" aria-controls="sc' + d[0] + '" aria-selected="' + (k === 0) + '">' + esc(d[1]) + '</button>';
+    }).join("");
+    defs.forEach(function (d, k) { el("sc" + d[0]).setAttribute("aria-labelledby", "tab" + k); });
+    active = 0;
+    pager.scrollLeft = 0;
+  }
+
+  function tabCount() { return tabsEl.children.length; }
+
+  function goTo(k) {
+    k = Math.max(0, Math.min(tabCount() - 1, k));
+    pager.scrollTo({ left: k * pager.clientWidth, behavior: RM ? "auto" : "smooth" });
+  }
+
+  function syncTabs() {
+    var w = pager.clientWidth || 1;
+    var k = Math.max(0, Math.min(tabCount() - 1, Math.round(pager.scrollLeft / w)));
+    if (k === active) return;
+    active = k;
+    Array.prototype.forEach.call(tabsEl.children, function (b, i) {
+      b.setAttribute("aria-selected", i === k ? "true" : "false");
+    });
+    var b = tabsEl.children[k];
+    if (b && b.scrollIntoView) b.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  pager.addEventListener("scroll", function () {
+    if (sTick) return;
+    sTick = requestAnimationFrame(function () { sTick = 0; syncTabs(); });
+  }, { passive: true });
+
+  tabsEl.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest(".tab");
+    if (b) goTo(+b.getAttribute("data-k"));
+  });
+
+  /* ============ schermata 1: il numero ============ */
+  var lastFigure = null, heroMode = "", footBuilt = false;
 
   function tween(node, from, to) {
     if (RM || from == null || !isFinite(from)) { node.textContent = N0.format(Math.round(to)); return; }
@@ -133,26 +182,29 @@
     })(t0);
   }
 
-  // periodo finto usato solo per far vedere come si legge il grafico prima del primo inserimento
+  // periodo finto, solo per far vedere come si legge il grafico prima del primo inserimento
   var EXAMPLE = { salary: 1800, fixed: 620, aside: 150, start: shiftD(todayISO(), -11), end: shiftD(todayISO(), 19) };
   var EXAMPLE_EXPENSES = [52.4, 18.9, 9.5, 64, 27.3, 12.5, 48.7, 21, 73.5, 15.2, 56.8, 30.4]
     .map(function (a, i) { return { id: "x" + i, amount: a, note: "", date: shiftD(EXAMPLE.start, i), createdAt: i }; });
 
   function heroOnboarding() {
+    setMode("onboard");
+    el("addForm").hidden = true;
+    el("today").hidden = true;
     if (heroMode !== "onboard") {
-      heroMode = "onboard";
+      heroMode = "onboard"; footBuilt = false;
       el("hero").innerHTML =
         '<p class="eyebrow">Si parte</p>' +
         '<h1 class="lede">Dimmi lo stipendio e quando arriva il prossimo.</h1>' +
-        '<p class="sub">Togliamo le spese fisse e il risparmio, dividiamo il resto per i giorni che mancano. Poi ogni giorno sai quanto puoi spendere.</p>' +
-        '<form id="obForm" autocomplete="off" style="margin-top:24px;display:flex;flex-direction:column;gap:14px">' +
+        '<p class="sub">Togliamo le spese fisse e il risparmio, dividiamo il resto per i giorni che mancano.</p>' +
+        '<form id="obForm" autocomplete="off" style="margin-top:18px;display:flex;flex-direction:column;gap:12px">' +
           '<div class="grid2">' +
             '<div class="f"><label for="obSalary">Stipendio netto</label><input class="big" id="obSalary" inputmode="decimal" placeholder="1.800"></div>' +
             '<div class="f"><label for="obEnd">Prossimo stipendio</label><input id="obEnd" type="date"></div>' +
           '</div>' +
           '<div class="grid2">' +
-            '<div class="f"><label for="obFixed">Spese fisse <span class="plain">(opzionale)</span></label><input id="obFixed" inputmode="decimal" placeholder="affitto, bollette…"></div>' +
-            '<div class="f"><label for="obSave">Da mettere da parte <span class="plain">(opzionale)</span></label><input id="obSave" inputmode="decimal" placeholder="0"></div>' +
+            '<div class="f"><label for="obFixed">Spese fisse</label><input id="obFixed" inputmode="decimal" placeholder="0"></div>' +
+            '<div class="f"><label for="obSave">Da parte</label><input id="obSave" inputmode="decimal" placeholder="0"></div>' +
           '</div>' +
           '<div><button class="solid accent" type="submit">Calcola</button></div>' +
         '</form>';
@@ -171,34 +223,55 @@
         });
       });
     }
-    el("addPanel").hidden = true;
-    el("listCard").hidden = true;
-    el("chartCard").hidden = false;
     el("chartNote").innerHTML = '<span class="tag">Esempio</span> così si leggerà';
+    el("forecastFoot").hidden = true;
     drawChart(model(EXAMPLE, EXAMPLE_EXPENSES, todayISO()), true);
-    el("foot").textContent = S.canSave
-      ? "I dati restano su questo dispositivo, nel tuo browser."
-      : "Attenzione: questo browser non salva nulla, i dati andranno persi.";
   }
 
   var PILL = {
-    good: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.6l3 3L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    warn: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.6l5.6 10.2H2.4L8 2.6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.6v2.6M8 11.1v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-    crit: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.1" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.9v3.6M8 10.9v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-    flat: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+    good: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.6l3 3L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    warn: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.6l5.6 10.2H2.4L8 2.6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.6v2.6M8 11.1v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    crit: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.1" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.9v3.6M8 10.9v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    flat: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
   };
 
   function heroLive(m) {
+    setMode("live");
+    el("addForm").hidden = false;
+    el("today").hidden = false;
     if (heroMode !== "live") {
       heroMode = "live";
       el("hero").innerHTML =
         '<div class="payday" id="paydayBox" hidden>' +
-          '<p><strong>È arrivato il giorno dello stipendio.</strong> Chiudi il periodo per ripartire con i giorni giusti.</p>' +
+          '<p><strong>È arrivato il giorno dello stipendio.</strong> Chiudi il periodo per ripartire.</p>' +
           '<button class="solid accent" type="button" id="paydayBtn">Nuovo periodo</button>' +
         '</div>' +
         '<p class="eyebrow" id="hEyebrow">Puoi spendere oggi</p>' +
         '<p class="figure"><span class="cur">€</span><span id="hFig">0</span></p>' +
-        '<p class="sub" id="hSub"></p>' +
+        '<p class="sub" id="hSub"></p>';
+      el("paydayBtn").addEventListener("click", newPeriod);
+    }
+
+    el("paydayBox").hidden = !m.isPayday;
+    var fig = Math.floor(m.allowance);
+    el("hEyebrow").textContent = m.over ? "Sei oltre il budget" : "Puoi spendere oggi";
+    tween(el("hFig"), lastFigure, fig);
+    lastFigure = fig;
+
+    var endTxt = DAY.format(parseD(m.end));
+    el("hSub").textContent = m.left > 0
+      ? "Restano " + EUR0.format(Math.max(0, m.rest)) + " per " + m.left + (m.left === 1 ? " giorno" : " giorni") + ", fino al " + endTxt + "."
+      : "Il periodo è finito: il prossimo stipendio era previsto il " + endTxt + ".";
+
+    el("chartNote").textContent = m.burn > 0 ? "ritmo " + EUR0.format(m.burn) + " al giorno" : "nessuna spesa";
+    el("forecastFoot").hidden = false;
+    renderForecastFoot(m);
+  }
+
+  function renderForecastFoot(m) {
+    if (!footBuilt) {
+      footBuilt = true;
+      el("forecastFoot").innerHTML =
         '<span class="pill" id="hPill"></span>' +
         '<div class="meter">' +
           '<div class="meter-track"><div class="meter-fill" id="hFill" style="width:0"></div><div class="meter-tick" id="hTick" hidden></div></div>' +
@@ -209,20 +282,7 @@
           '<div class="stat"><dt>Giorni</dt><dd id="sDays">—</dd></div>' +
           '<div class="stat"><dt>Risparmio previsto</dt><dd id="sSave">—</dd></div>' +
         '</dl>';
-      el("paydayBtn").addEventListener("click", newPeriod);
     }
-
-    el("paydayBox").hidden = !m.isPayday;
-
-    var fig = Math.floor(m.allowance);
-    el("hEyebrow").textContent = m.over ? "Sei oltre il budget" : "Puoi spendere oggi";
-    tween(el("hFig"), lastFigure, fig);
-    lastFigure = fig;
-
-    var endTxt = DAY.format(parseD(m.end));
-    el("hSub").textContent = m.left > 0
-      ? "Restano " + EUR0.format(Math.max(0, m.rest)) + " per " + m.left + (m.left === 1 ? " giorno" : " giorni") + ", fino al " + endTxt + "."
-      : "Il periodo è finito: il prossimo stipendio era previsto il " + endTxt + ".";
 
     var kind, txt;
     if (m.over) { kind = "crit"; txt = "Hai superato il budget di <b>" + EUR0.format(-m.rest) + "</b>"; }
@@ -243,40 +303,40 @@
     tick.style.left = "calc(" + timePct + "% - 1px)";
     tick.title = "dove dovresti essere";
     el("hL1").textContent = "Spesi " + EUR0.format(m.spent) + " di " + EUR0.format(m.budget);
-    el("hL2").textContent = Math.round(timePct) + "% del periodo passato";
+    el("hL2").textContent = Math.round(timePct) + "% del periodo";
 
     el("sRest").textContent = EUR0.format(m.rest);
-    el("sDays").innerHTML = m.left + '<small>su ' + m.total + " del periodo</small>";
+    el("sDays").innerHTML = m.left + '<small>su ' + m.total + "</small>";
     var saved = (S.set.aside || 0) + Math.max(0, m.projEnd);
     el("sSave").innerHTML = EUR0.format(saved) + '<small>' +
       (m.projEnd >= 1
         ? EUR0.format(S.set.aside || 0) + " + " + EUR0.format(m.projEnd) + " di avanzo"
-        : "di cui programmato " + EUR0.format(S.set.aside || 0)) + "</small>";
-
-    el("addPanel").hidden = false;
-    el("chartCard").hidden = false;
-    el("listCard").hidden = false;
-    el("chartNote").textContent = m.burn > 0 ? "ritmo attuale " + EUR0.format(m.burn) + " al giorno" : "nessuna spesa registrata";
-    el("foot").textContent = "Periodo dal " + DAY.format(parseD(m.start)) + " al " + endTxt +
-      " · " + EUR0.format(S.set.salary || 0) + " di stipendio, " + EUR0.format((S.set.fixed || 0) + (S.set.aside || 0)) + " trattenuti";
+        : "programmato " + EUR0.format(S.set.aside || 0)) + "</small>";
   }
 
   /* ============ grafico ============ */
-  var CH = { m: null, geo: null, example: false, width: 0 };
+  var CH = { m: null, geo: null, example: false, w: 0, h: 0 };
+
+  function hostSize() {
+    var host = el("chartHost");
+    return {
+      w: Math.max(300, Math.min(900, Math.round(host.clientWidth || 700))),
+      h: Math.max(170, Math.min(460, Math.round(host.clientHeight || 230)))
+    };
+  }
 
   function redrawChartIfResized() {
-    if (!CH.m || el("chartCard").hidden) return;
-    var host = el("chartHost");
-    var w = Math.max(320, Math.min(760, Math.round(host.clientWidth || 760)));
-    if (Math.abs(w - CH.width) > 2) drawChart(CH.m, CH.example);
+    if (!CH.m || el("sc1").hidden) return;
+    var s = hostSize();
+    if (Math.abs(s.w - CH.w) > 2 || Math.abs(s.h - CH.h) > 2) drawChart(CH.m, CH.example);
   }
 
   function drawChart(m, isExample) {
     var host = el("chartHost");
-    // il viewBox segue la larghezza reale: così 11px di testo restano 11px anche sul telefono
-    var W = Math.max(320, Math.min(760, Math.round(host.clientWidth || 760)));
+    // il viewBox segue i px reali del contenitore: il testo resta della stessa misura ovunque
+    var sz = hostSize(), W = sz.w, H = sz.h;
     var narrow = W < 460;
-    var H = 250, PT = 28, PB = 34, PL = 14, PR = 16;
+    var PT = 24, PB = 30, PL = 14, PR = 16;
     var iw = W - PL - PR, ih = H - PT - PB;
     var yMax = Math.max(m.budget, 1);
     var floor = Math.max(m.budget * 0.06, 10);
@@ -298,6 +358,7 @@
     }
     var base = Y(Math.max(0, yMin)).toFixed(1);
     var area = path(act) + " L" + X(cut).toFixed(1) + " " + base + " L" + X(0).toFixed(1) + " " + base + " Z";
+    var FF = 'font-family="Figtree,system-ui,sans-serif"';
 
     var g = [];
     if (yMin < 0) {
@@ -305,7 +366,7 @@
     }
     [yMax, yMax / 2, 0].forEach(function (v) {
       g.push('<line x1="' + PL + '" y1="' + Y(v).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + Y(v).toFixed(1) + '" stroke="var(--hair)" stroke-width="1"/>');
-      g.push('<text x="' + (PL + 2) + '" y="' + (Y(v) - 7).toFixed(1) + '" font-size="11" fill="var(--ink3)" font-family="Figtree,system-ui,sans-serif">' + (v === 0 ? "0 €" : EUR0.format(v)) + '</text>');
+      g.push('<text x="' + (PL + 2) + '" y="' + (Y(v) - 6).toFixed(1) + '" font-size="10.5" fill="var(--ink3)" ' + FF + '>' + (v === 0 ? "0 €" : EUR0.format(v)) + '</text>');
     });
     g.push('<line x1="' + X(0).toFixed(1) + '" y1="' + Y(m.budget).toFixed(1) + '" x2="' + X(m.total).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '" stroke="var(--ink3)" stroke-width="2" stroke-dasharray="1 5" stroke-linecap="round" opacity=".75"/>');
     g.push('<path d="' + area + '" fill="var(--accent)" opacity=".13"/>');
@@ -315,33 +376,31 @@
     }
     if (m.zero != null && m.zero < m.total - 0.3 && m.left > 0) {
       var zx = X(m.zero), late = m.zero > m.total * 0.68;
-      g.push('<line x1="' + zx.toFixed(1) + '" y1="' + Y(0).toFixed(1) + '" x2="' + zx.toFixed(1) + '" y2="' + (Y(0) + 16).toFixed(1) + '" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="2 3"/>');
-      g.push('<circle cx="' + zx.toFixed(1) + '" cy="' + Y(0).toFixed(1) + '" r="3.6" fill="var(--crit)" stroke="var(--bg)" stroke-width="2"/>');
-      g.push('<text x="' + (zx + (late ? -9 : 9)).toFixed(1) + '" y="' + (Y(0) + 20).toFixed(1) + '" font-size="11.5" font-weight="600" fill="var(--crit)" text-anchor="' + (late ? "end" : "start") + '" font-family="Figtree,system-ui,sans-serif">a secco il ' + DAY.format(parseD(shiftD(m.start, Math.round(m.zero) - 1))) + '</text>');
+      g.push('<line x1="' + zx.toFixed(1) + '" y1="' + Y(0).toFixed(1) + '" x2="' + zx.toFixed(1) + '" y2="' + (Y(0) + 15).toFixed(1) + '" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="2 3"/>');
+      g.push('<circle cx="' + zx.toFixed(1) + '" cy="' + Y(0).toFixed(1) + '" r="3.4" fill="var(--crit)" stroke="var(--bg)" stroke-width="2"/>');
+      g.push('<text x="' + (zx + (late ? -8 : 8)).toFixed(1) + '" y="' + (Y(0) + 19).toFixed(1) + '" font-size="11" font-weight="600" fill="var(--crit)" text-anchor="' + (late ? "end" : "start") + '" ' + FF + '>a secco il ' + DAY.format(parseD(shiftD(m.start, Math.round(m.zero) - 1))) + '</text>');
     }
     var cx = X(cut), cy = Y(act[act.length - 1].v);
-    g.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="5" fill="var(--accent)" stroke="var(--bg)" stroke-width="2.4"/>');
+    g.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="4.6" fill="var(--accent)" stroke="var(--bg)" stroke-width="2.4"/>');
     if (cut > m.total * 0.12 && cut < m.total * 0.88) {
-      g.push('<text x="' + cx.toFixed(1) + '" y="' + (PT - 11) + '" font-size="11.5" font-weight="600" fill="var(--ink2)" text-anchor="middle" font-family="Figtree,system-ui,sans-serif">oggi</text>');
+      g.push('<text x="' + cx.toFixed(1) + '" y="' + (PT - 9) + '" font-size="11" font-weight="600" fill="var(--ink2)" text-anchor="middle" ' + FF + '>oggi</text>');
     }
-    g.push('<text x="' + PL + '" y="' + (H - 10) + '" font-size="11.5" fill="var(--ink3)" font-family="Figtree,system-ui,sans-serif">' + DAY.format(parseD(m.start)) + '</text>');
-    g.push('<text x="' + (W - PR) + '" y="' + (H - 10) + '" font-size="11.5" fill="var(--ink3)" text-anchor="end" font-family="Figtree,system-ui,sans-serif">' + DAY.format(parseD(m.end)) + (narrow ? '' : ' · stipendio') + '</text>');
+    g.push('<text x="' + PL + '" y="' + (H - 9) + '" font-size="11" fill="var(--ink3)" ' + FF + '>' + DAY.format(parseD(m.start)) + '</text>');
+    g.push('<text x="' + (W - PR) + '" y="' + (H - 9) + '" font-size="11" fill="var(--ink3)" text-anchor="end" ' + FF + '>' + DAY.format(parseD(m.end)) + (narrow ? '' : ' · stipendio') + '</text>');
     g.push('<line id="chX" x1="0" y1="' + PT + '" x2="0" y2="' + (PT + ih) + '" stroke="var(--ink2)" stroke-width="1" opacity="0"/>');
-    g.push('<circle id="chD" cx="0" cy="0" r="4.5" fill="var(--ink)" stroke="var(--bg)" stroke-width="2" opacity="0"/>');
+    g.push('<circle id="chD" cx="0" cy="0" r="4.2" fill="var(--ink)" stroke="var(--bg)" stroke-width="2" opacity="0"/>');
     g.push('<rect id="chHit" x="' + PL + '" y="' + PT + '" width="' + iw + '" height="' + ih + '" fill="transparent" style="cursor:crosshair"/>');
 
-    Array.prototype.forEach.call(host.querySelectorAll("svg,.example"), function (n) { n.remove(); });
+    Array.prototype.forEach.call(host.querySelectorAll("svg"), function (n) { n.remove(); });
     host.insertAdjacentHTML("afterbegin",
-      '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Soldi che restano giorno per giorno, con il ritmo ideale e la previsione fino al prossimo stipendio">' + g.join("") + '</svg>');
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Soldi che restano giorno per giorno, con il ritmo ideale e la previsione fino al prossimo stipendio">' + g.join("") + '</svg>');
 
     el("keys").innerHTML =
-      '<span><i style="border-color:var(--accent)"></i>Andamento reale</span>' +
+      '<span><i style="border-color:var(--accent)"></i>Reale</span>' +
       '<span><i style="border-color:' + (projBad ? "var(--crit)" : "var(--accent)") + ';border-top-style:dashed"></i>Previsione</span>' +
       '<span><i style="border-color:var(--ink3);border-top-style:dotted"></i>Ritmo ideale</span>';
 
-    CH.m = m;
-    CH.example = !!isExample;
-    CH.width = W;
+    CH.m = m; CH.example = !!isExample; CH.w = W; CH.h = H;
     CH.geo = { W: W, H: H, PL: PL, PT: PT, ih: ih, iw: iw, X: X, Y: Y, act: act, cut: cut };
     wireHover();
   }
@@ -372,9 +431,9 @@
       tip.classList.add("on");
       var hostR = el("chartHost").getBoundingClientRect();
       var left = (cx / G.W) * r.width + (r.left - hostR.left);
-      var top = (cy / G.H) * r.height + (r.top - hostR.top) - 14;
-      tip.style.left = Math.max(70, Math.min(hostR.width - 70, left)) + "px";
-      tip.style.top = Math.max(54, top) + "px";
+      var top = (cy / G.H) * r.height + (r.top - hostR.top) - 12;
+      tip.style.left = Math.max(66, Math.min(hostR.width - 66, left)) + "px";
+      tip.style.top = Math.max(50, top) + "px";
     }
     hit.addEventListener("pointermove", move);
     hit.addEventListener("pointerdown", move);
@@ -382,11 +441,45 @@
     hit.addEventListener("pointercancel", off);
   }
 
+  /* ============ righe di spesa ============ */
+  function rowHTML(e, withDay) {
+    var when = "";
+    if (withDay) {
+      var t = todayISO(), y = shiftD(t, -1);
+      var lbl = e.date === t ? "oggi" : (e.date === y ? "ieri" : DAY.format(parseD(e.date)));
+      when = '<em class="when">' + esc(lbl) + '</em>';
+    }
+    return '<div class="row"><span class="nm">' + esc(e.note || "Spesa") + when + '</span>' +
+      '<span class="amt-v">' + EUR2.format(e.amount) + '</span>' +
+      '<button class="del" type="button" data-id="' + esc(e.id) + '" aria-label="Elimina ' + esc(e.note || "spesa") + '">×</button></div>';
+  }
+  function byNewest(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); }
+
+  /* ============ spese di oggi (prima schermata) ============ */
+  function renderToday(m) {
+    var box = el("today");
+    var t = todayISO();
+    var mine = m.inPeriod.filter(function (e) { return e.date === t; }).sort(byNewest);
+    if (mine.length) {
+      var tot = mine.reduce(function (a, e) { return a + e.amount; }, 0);
+      box.innerHTML = '<div class="today-head"><h3>Segnate oggi</h3><span class="tot">' + EUR2.format(tot) + '</span></div>' +
+        mine.map(function (e) { return rowHTML(e, false); }).join("");
+      return;
+    }
+    var last = m.inPeriod.slice().sort(byNewest).slice(0, 5);
+    if (last.length) {
+      box.innerHTML = '<div class="today-head"><h3>Ultime spese</h3><span class="tot">niente oggi</span></div>' +
+        last.map(function (e) { return rowHTML(e, true); }).join("");
+      return;
+    }
+    box.innerHTML = '<p class="empty">Niente ancora. Segna qui sotto la prima spesa: quanto hai speso e che cos\'è.</p>';
+  }
+
   /* ============ lista spese ============ */
   function renderList(m) {
     var box = el("list");
     if (!m.inPeriod.length) {
-      box.innerHTML = '<p class="empty">Ancora nessuna spesa in questo periodo. Il primo caffè lo segni qui sopra.</p>';
+      box.innerHTML = '<p class="empty">Ancora nessuna spesa in questo periodo. Segnale dalla prima schermata.</p>';
       el("listTotal").textContent = "";
       return;
     }
@@ -398,11 +491,7 @@
       var tot = items.reduce(function (a, e) { return a + e.amount; }, 0);
       var lbl = d === t ? "Oggi" : (d === y ? "Ieri" : cap(DAYLONG.format(parseD(d))));
       return '<div class="day"><div class="day-head"><h3>' + esc(lbl) + '</h3><span class="tot">' + EUR2.format(tot) + '</span></div>' +
-        items.map(function (e) {
-          return '<div class="row"><span class="nm">' + esc(e.note || "Spesa") + '</span>' +
-            '<span class="amt">' + EUR2.format(e.amount) + '</span>' +
-            '<button class="del" type="button" data-id="' + esc(e.id) + '" aria-label="Elimina ' + esc(e.note || "spesa") + '">×</button></div>';
-        }).join("") + '</div>';
+        items.map(function (e) { return rowHTML(e, false); }).join("") + '</div>';
     }).join("");
     el("listTotal").textContent = m.inPeriod.length + (m.inPeriod.length === 1 ? " spesa · " : " spese · ") + EUR2.format(m.spent);
   }
@@ -410,17 +499,21 @@
   /* ============ risparmi storici ============ */
   function renderSaved() {
     var list = S.per.filter(function (p) { return p && isFinite(+p.saved); });
-    if (!list.length) { el("savedCard").hidden = true; return; }
-    el("savedCard").hidden = false;
+    var box = el("savedBars");
+    if (!list.length) {
+      el("savedTotal").textContent = "";
+      box.innerHTML = '<p class="empty">Qui finisce quello che metti da parte. Il primo importo compare quando chiudi un periodo, cioè quando arriva lo stipendio nuovo.</p>';
+      return;
+    }
     var max = Math.max.apply(null, list.map(function (p) { return Math.max(0, +p.saved); }).concat([1]));
     var tot = list.reduce(function (a, p) { return a + Math.max(0, +p.saved); }, 0);
     el("savedTotal").textContent = "totale " + EUR0.format(tot);
-    el("savedBars").innerHTML = list.slice(0, 12).map(function (p) {
+    box.innerHTML = '<div class="bars">' + list.slice(0, 24).map(function (p) {
       var w = Math.max(2, Math.max(0, +p.saved) / max * 100);
       return '<div class="bar"><span class="lb">' + esc(MON.format(parseD(p.end || p.start))) + '</span>' +
         '<span class="tr"><span class="fl" style="width:' + w.toFixed(1) + '%"></span></span>' +
         '<span class="vl">' + EUR0.format(Math.max(0, +p.saved)) + '</span></div>';
-    }).join("");
+    }).join("") + '</div>';
   }
 
   /* ============ render ============ */
@@ -428,6 +521,7 @@
     if (!S.set) { heroOnboarding(); renderSaved(); return; }
     var m = model(S.set, S.exp, todayISO());
     heroLive(m);
+    renderToday(m);
     drawChart(m, false);
     renderList(m);
     renderSaved();
@@ -518,7 +612,7 @@
     r.readAsText(file);
   }
 
-  /* ============ pannello ============ */
+  /* ============ impostazioni ============ */
   function openSheet() {
     var s = S.set || {};
     el("stSalary").value = dec(s.salary);
@@ -531,25 +625,26 @@
   }
   function closeSheet() { el("sheet").hidden = true; }
 
-  /* ============ tema ============ */
-  var THEMES = ["auto", "light", "dark"], LABEL = { auto: "Auto", light: "Chiaro", dark: "Scuro" };
+  /* ============ tema (dalle impostazioni) ============ */
+  var THEMES = ["auto", "light", "dark"];
   function applyTheme(t) {
     if (t === "auto") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", t);
-    var b = el("btnTheme");
-    b.textContent = LABEL[t];
-    b.setAttribute("aria-label", "Tema: " + LABEL[t].toLowerCase() + ", premi per cambiare");
+    Array.prototype.forEach.call(el("segTheme").children, function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-t") === t ? "true" : "false");
+    });
   }
   function initTheme() {
     var t = "auto";
     try { t = localStorage.getItem(THEME_KEY) || "auto"; } catch (e) { }
     if (THEMES.indexOf(t) < 0) t = "auto";
     applyTheme(t);
-    el("btnTheme").addEventListener("click", function () {
-      var cur = document.documentElement.getAttribute("data-theme") || "auto";
-      var next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
-      applyTheme(next);
-      try { localStorage.setItem(THEME_KEY, next); } catch (e) { }
+    el("segTheme").addEventListener("click", function (e) {
+      var b = e.target.closest && e.target.closest("button[data-t]");
+      if (!b) return;
+      var v = b.getAttribute("data-t");
+      applyTheme(v);
+      try { localStorage.setItem(THEME_KEY, v); } catch (err) { }
     });
   }
 
@@ -557,7 +652,15 @@
   el("btnSettings").addEventListener("click", openSheet);
   el("stClose").addEventListener("click", closeSheet);
   el("sheet").addEventListener("click", function (e) { if (e.target === el("sheet")) closeSheet(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !el("sheet").hidden) closeSheet(); });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !el("sheet").hidden) { closeSheet(); return; }
+    if (!el("sheet").hidden) return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key === "ArrowRight") { goTo(active + 1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { goTo(active - 1); e.preventDefault(); }
+  });
 
   el("stApply").addEventListener("click", function () {
     var sal = num(el("stSalary").value);
@@ -595,15 +698,19 @@
     ev.preventDefault();
     var a = num(el("exAmt").value);
     if (!isFinite(a) || a <= 0) { el("exAmt").focus(); return; }
-    addExpense(a, el("exNote").value.trim(), el("exDate").value || todayISO());
+    var note = el("exNote").value.trim();
+    addExpense(a, note, el("exDate").value || todayISO());
     el("exAmt").value = ""; el("exNote").value = ""; el("exDate").value = todayISO();
     el("exAmt").focus();
+    toast("Segnata " + EUR2.format(a) + (note ? " · " + note : ""));
   });
 
-  el("list").addEventListener("click", function (e) {
+  function onDelClick(e) {
     var b = e.target.closest && e.target.closest(".del");
     if (b) delExpense(b.getAttribute("data-id"));
-  });
+  }
+  el("list").addEventListener("click", onDelClick);
+  el("today").addEventListener("click", onDelClick);
 
   /* ============ avvio ============ */
   initTheme();
@@ -618,12 +725,12 @@
     render();
   });
 
-  // il grafico usa px reali: va ridisegnato quando cambia la larghezza
+  // il grafico usa px reali: va ridisegnato quando cambia la misura del contenitore
   var rz;
-  window.addEventListener("resize", function () {
-    clearTimeout(rz);
-    rz = setTimeout(redrawChartIfResized, 150);
-  });
+  function scheduleRedraw() { clearTimeout(rz); rz = setTimeout(redrawChartIfResized, 120); }
+  window.addEventListener("resize", scheduleRedraw);
+  window.addEventListener("load", scheduleRedraw);
+  if (window.ResizeObserver) new ResizeObserver(scheduleRedraw).observe(el("chartHost"));
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {

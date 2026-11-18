@@ -8,6 +8,21 @@ Webapp minimale per i risparmi. Fa tre cose:
 
 Niente categorie, niente banca collegata, niente account. Un numero grande e un grafico.
 
+## Come è fatta
+
+Una sola schermata, mai scorrimento verticale di pagina. Le viste sono quattro schede affiancate
+che si scorrono in orizzontale (swipe sul telefono, frecce ← → o click sulle linguette altrove):
+
+| Scheda | Cosa c'è |
+| --- | --- |
+| **Oggi** | il numero del giorno, quello che hai già segnato oggi, e il campo per aggiungere una spesa |
+| **Previsione** | il grafico, lo stato rispetto al ritmo, e i numeri del periodo |
+| **Spese** | l'elenco di quello che hai segnato, raggruppato per giorno |
+| **Risparmi** | quanto hai messo da parte in ogni periodo chiuso |
+
+Per segnare una spesa servono l'importo e che cos'è; il giorno è già impostato su oggi e si cambia
+solo se serve. Il tema (auto, chiaro, scuro) si sceglie dalle impostazioni, l'ingranaggio in alto a destra.
+
 ## Come calcola il numero
 
 ```
