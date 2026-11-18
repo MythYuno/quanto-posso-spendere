@@ -104,6 +104,15 @@ class BudgetTest(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator("#toast")).to_contain_text("già aperto")
         self.assertEqual(len((await self.state())["periods"]), 1)
 
+    async def test_last_cent_on_final_day(self):
+        state = snapshot(0, 1)
+        state["settings"].update(salary=0.30, fixed=0, aside=0)
+        await self.seed(state)
+        await self.spend(self.page, "0,10")
+        await self.spend(self.page, "0,20")
+        await expect(self.page.locator("#hFig")).to_have_text("0")
+        await expect(self.page.locator("#hPill")).to_contain_text("In linea")
+
     async def test_future_expense_and_payday(self):
         state = snapshot()
         state["expenses"] = [expense("domani", 40, 1)]

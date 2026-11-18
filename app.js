@@ -32,6 +32,7 @@
     var value = Number(s.replace(",", "."));
     return Number.isSafeInteger(Math.round(value * 100)) ? value : NaN;
   }
+  function cents(n) { return Math.round(n * 100); }
   function moneyField(id, optional) {
     var input = el(id), raw = input.value.trim();
     var n = optional && raw === "" ? 0 : num(raw);
@@ -75,7 +76,7 @@
   }
   function withActualSavings(p) {
     if (!p || ![p.salary, p.fixed, p.spent].every(Number.isFinite)) return p;
-    return Object.assign({}, p, { saved: Math.round((p.salary - p.fixed - p.spent) * 100) / 100 });
+    return Object.assign({}, p, { saved: (cents(p.salary) - cents(p.fixed) - cents(p.spent)) / 100 });
   }
   function snapshot(state) {
     return { v: 1, settings: state.set, expenses: state.exp, periods: state.per };
@@ -143,11 +144,14 @@
     var total = Math.max(1, diffDays(start, end));
     var idx = Math.min(total, Math.max(0, diffDays(start, today)));
     var left = Math.max(0, total - idx);
-    var budget = Math.max(0, (set.salary || 0) - (set.fixed || 0) - (set.aside || 0));
+    var budgetCents = Math.max(0, cents(set.salary) - cents(set.fixed) - cents(set.aside));
+    var budget = budgetCents / 100;
 
     var inPeriod = exps.filter(function (e) { return e.date >= start && e.date < end && e.date <= today; });
-    var spent = inPeriod.reduce(function (a, e) { return a + e.amount; }, 0);
-    var rest = budget - spent;
+    var spentCents = inPeriod.reduce(function (a, e) { return a + cents(e.amount); }, 0);
+    var spent = spentCents / 100;
+    var restCents = budgetCents - spentCents;
+    var rest = restCents / 100;
 
     var perDay = [], oncePerDay = [];
     for (var i = 0; i < total; i++) { perDay.push(0); oncePerDay.push(0); }
@@ -168,10 +172,10 @@
     var expected = onceSoFar + ordBudget * (elapsed / total);
     var delta = expected - spent;
     var spentToday = perDay[idx] || 0;
-    var openingCents = Math.round((rest + spentToday) * 100);
+    var openingCents = restCents + cents(spentToday);
     var quotaCents = left > 0 ? Math.floor(openingCents / left) : 0;
-    var allowance = today >= start ? Math.max(0, quotaCents - Math.round(spentToday * 100)) / 100 : 0;
-    var tomorrow = left > 1 ? Math.max(0, Math.floor(Math.round(rest * 100) / (left - 1))) / 100 : 0;
+    var allowance = today >= start ? Math.max(0, quotaCents - cents(spentToday)) / 100 : 0;
+    var tomorrow = left > 1 ? Math.max(0, Math.floor(restCents / (left - 1))) / 100 : 0;
     var projEnd = rest - burn * Math.max(0, left - 1);
     var zero = burn > 0 && rest >= 0 ? elapsed + rest / burn : null;
 
