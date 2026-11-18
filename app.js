@@ -762,9 +762,22 @@
   window.addEventListener("load", scheduleRedraw);
   if (window.ResizeObserver) new ResizeObserver(scheduleRedraw).observe(el("chartHost"));
 
+  /* ============ aggiornamenti ============
+     Senza questo, una versione nuova resta invisibile finché l'utente non
+     ricarica a mano: il service worker serve CSS e JS dalla cache. */
   if ("serviceWorker" in navigator) {
+    var hadController = !!navigator.serviceWorker.controller, reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      // al primo avvio non c'era nessun controller: non è un aggiornamento, non ricaricare
+      if (!hadController || reloading) return;
+      reloading = true;
+      location.reload();
+    });
     window.addEventListener("load", function () {
-      navigator.serviceWorker.register("sw.js").catch(function () { });
+      navigator.serviceWorker.register("sw.js").then(function (reg) {
+        // controlla se c'è una versione nuova a ogni rientro nell'app
+        window.addEventListener("focus", function () { reg.update().catch(function () { }); });
+      }).catch(function () { });
     });
   }
 })();

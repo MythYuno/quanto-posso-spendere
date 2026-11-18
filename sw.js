@@ -1,5 +1,5 @@
 /* Service worker: tiene l'app disponibile anche senza rete. */
-var CACHE = "qps-v4";
+var CACHE = "qps-v5";
 var SHELL = [
   "./",
   "./index.html",

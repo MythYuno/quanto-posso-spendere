@@ -238,8 +238,18 @@ input{
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
 }
 input::placeholder{color:var(--ink3);opacity:.85}
-/* alcuni browser mobili centrano il valore dei campi data: va a sinistra come gli altri */
-input[type="date"]{text-align:left}
+/* I browser mobili centrano il valore dei campi data, e `text-align` sull'input non lo tocca:
+   il valore vive in uno shadow element interno, che va allineato a parte. */
+input[type="date"]{
+  text-align:left;
+  -webkit-appearance:none;appearance:none;   /* su iOS il controllo nativo centra il valore */
+  min-height:42px;
+}
+input[type="date"]::-webkit-date-and-time-value{text-align:left;margin:0}
+input[type="date"]::-webkit-datetime-edit{text-align:left;padding:0}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper{text-align:left;padding:0}
+input[type="date"]::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
+input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:.85}
 input[type="checkbox"]{
   width:16px;height:16px;flex:none;margin:0;padding:0;
   border:none;border-radius:0;background:none;accent-color:var(--accent);
